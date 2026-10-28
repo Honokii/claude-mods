@@ -1,0 +1,7 @@
+{
+  "name": "my-agents",
+  "version": "0.2.1",
+  "description": "A pane (/my-agents) with your own agents, each with a pixel critter and a run button, and the subagents running or finished in this session.",
+  "author": { "name": "jerick" },
+  "types": "./types/index.d.ts"
+}

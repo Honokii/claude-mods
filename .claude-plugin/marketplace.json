@@ -1,0 +1,19 @@
+{
+  "name": "claude-mods",
+  "owner": {
+    "name": "jerick"
+  },
+  "description": "My own Claude Code mods.",
+  "plugins": [
+    {
+      "name": "activity-band",
+      "source": "./plugins/activity-band",
+      "description": "Progress bar, session stats and context card above the prompt."
+    },
+    {
+      "name": "my-agents",
+      "source": "./plugins/my-agents",
+      "description": "/my-agents pane: your agents with critters and run buttons, plus running and finished subagents."
+    }
+  ]
+}

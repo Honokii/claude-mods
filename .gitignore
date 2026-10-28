@@ -1,0 +1,32 @@
+# Generated mod types
+.claude-plugin/types/
+
+# Dependencies and build output
+node_modules/
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# Logs and caches
+*.log
+logs/
+.cache/
+coverage/
+.eslintcache
+
+# Local and secret config
+.env
+.env.*
+!.env.example
+*.local.json
+.claude/settings.local.json
+*.pem
+*.key
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

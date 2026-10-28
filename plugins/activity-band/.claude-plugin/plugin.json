@@ -1,0 +1,7 @@
+{
+  "name": "activity-band",
+  "version": "0.2.1",
+  "description": "One line above the prompt: a progress bar fed by Claude's task list, turn, speed, cost and cache countdown; under it a context card.",
+  "author": { "name": "jerick" },
+  "types": "./types/index.d.ts"
+}
