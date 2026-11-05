@@ -1,0 +1,7 @@
+{
+  "name": "chat-inventory",
+  "version": "0.1.0",
+  "description": "A pane (/inventory) listing this chat's to-do list, connectors and their calls, context files and skills.",
+  "author": { "name": "jerick" },
+  "types": "./types/index.d.ts"
+}
