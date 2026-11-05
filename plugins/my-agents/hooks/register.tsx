@@ -338,12 +338,25 @@ export const register: Register = on => {
 
     // A bar under the card: full once done, creeping on with each step while running.
     const bar = (r: Run, color: string) => {
-      const width = Math.max(10, cols - 6)
       const part = r.status === 'running' ? Math.min(0.92, 0.08 + (1 - Math.pow(0.85, r.steps)) * 0.84) : 1
+      const fill = r.status === 'failed' ? FAIL : color
+      if (Svg) {
+        // No width given, so the drawing takes the card's width and keeps its
+        // 100:1 shape: a solid bar a few pixels tall on one row.
+        const w = Math.round(1000 * part)
+        const source = `<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="10" viewBox="0 0 1000 10"><rect width="1000" height="10" rx="5" fill="#888888" fill-opacity="0.25"/><rect width="${w}" height="10" rx="5" fill="${fill}"/></svg>`
+        return (
+          <Box marginTop={1}>
+            <Svg source={source} alt={`${Math.round(part * 100)}% done`} />
+          </Box>
+        )
+      }
+      // The terminal: characters, kept inside the card's border and padding.
+      const width = Math.max(10, cols - 8)
       const filled = Math.round(width * part)
       return (
         <Text wrap="truncate">
-          <Text color={r.status === 'failed' ? FAIL : color}>{'━'.repeat(filled)}</Text>
+          <Text color={fill}>{'━'.repeat(filled)}</Text>
           <Text dimColor>{'━'.repeat(width - filled)}</Text>
         </Text>
       )
