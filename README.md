@@ -8,6 +8,7 @@ is installed from it for my user, so every new session loads them.
 | --- | --- | --- |
 | `activity-band` | One line above the prompt: the current step's title, a solid progress bar fed by Claude's task list (`Tasks 2/4`, %; green `Done` at the end; `No task list` when there is none) at a fixed size and place, then turn, speed (tok/s), turn and session cost, and the 1-hour prompt cache countdown (amber at 20 min, red at 10, `00:00` when expired), each in a fixed slot. Under it a context card (tokens by category, % used, where auto-compaction starts). | Always on. `×` hides it until the next message. |
 | `chat-inventory` | Pane, "In this chat", with four foldable sections: the to-do list (from `update_plan`, `TodoWrite` or `TaskCreate`), connectors (MCP servers as letter tiles with a call count; press one for its calls, newest first), context files read (memory files marked `auto`) and skills used. Long lists show 8 rows, then "Show all". | Opens by itself the first time the chat uses something; `/inventory` opens it again. |
+| `mod-manager` | Pane, "Mods", listing every installed mod (version, marketplace, description), mods first and other plugins folded under "Other plugins". Each has an On/Off switch (runs `claude plugin enable/disable`, so it works for any plugin), ▶ buttons for its slash commands, and an Update button when its marketplace has a newer version. This chat's dev mods and `CLAUDE_CODE_PLUGIN_DIRS` folders are listed too. | `/mods` opens it. On/Off and updates apply in new chats; the pane says when this chat still runs the old state. |
 | `my-agents` | Pane with tiles (running, finished, time), cards for this session's subagents under coloured, foldable Running and Finished bands (each card: task, agent and model, tokens and time, current step, its last tool calls, a progress bar, and the answer once done), and my agents from `~\.claude\agents` and the project's `.claude\agents`. Each agent has a pixel critter (shape and hat from its name, colour from its model) that hops while it runs. | `/my-agents` opens or closes it. ▶ beside an agent sends "Run the <agent> agent…" as your message, and Claude starts it with its defaults. |
 
 ## Layout
@@ -92,3 +93,8 @@ Removing the whole marketplace: `claude plugin marketplace remove claude-mods`.
 - The feedback survey ("How is Claude doing…") takes the band's place while it
   shows; mods must give way to it (`e.props.hasSurvey`).
 - A mod can't delete files: `$.fs` reads, writes and lists only.
+- **An `<Svg>` with an empty `alt` is not drawn** on the desktop, and no error
+  says so. Give every picture a real `alt`.
+- **There is no toggle switch for mods.** A Button takes only a plain text
+  label (Text children are refused), and an `<Svg>` can't be pressed, so a
+  switch is an `On`/`Off` button.

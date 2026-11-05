@@ -19,6 +19,11 @@
       "name": "chat-inventory",
       "source": "./plugins/chat-inventory",
       "description": "/inventory pane: this chat's to-do list, connectors and their calls, context files and skills."
+    },
+    {
+      "name": "mod-manager",
+      "source": "./plugins/mod-manager",
+      "description": "/mods pane: every mod you have, with on/off switches, command buttons and updates."
     }
   ]
 }
