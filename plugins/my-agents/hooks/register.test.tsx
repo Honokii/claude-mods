@@ -35,6 +35,7 @@ test('lists my agents, runs one from its button and shows it running then finish
   on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
   on('agent.list', () => ({ value: [{ id: 'a1', description: 'x', type: 'commit-helper', status }] }))
   on('turn.complete', () => ({ text: '' }))
+  on('tool.call', () => ({ result: 'ok' }) as never)
 
   await $.session.start({ cwd: 'C:/Users/me', surface: 'desktop', isInteractive: true })
   await $.command.run({ command: 'my-agents', args: '' } as never)
@@ -48,11 +49,14 @@ test('lists my agents, runs one from its button and shows it running then finish
   expect(asked[0]).toMatch(/^Run the commit-helper agent\./)
   await $.agent.spawn({ subagentType: 'commit-helper', prompt: 'go', description: 'commit' } as never)
   expect(await ui.find({ type: 'Text', text: /Running · 1/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /▶ panel/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /commit-helper · Sonnet 5\.5 · ▶ panel/ })).toBeDefined()
+  await $.tool.call({ tool: 'Read', file_path: 'C:/repo/notes.md', agentId: 'a1' } as never)
+  expect(await ui.find({ type: 'Text', text: /Step 1 · Reading notes\.md/ })).toBeDefined()
 
   status = 'completed'
   await $.turn.complete({ turnId: 't', agentId: 'a1', answer: 'Committed 3 files.', durationMs: 1000, isAborted: false } as never)
   expect(await ui.find({ type: 'Text', text: /Finished · 1/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Done · / })).toBeDefined()
   await ui.press({ key: 'answer-a1' })
   expect((await ui.find({ type: 'Text', text: /Committed/ }))?.text).toBe('Committed 3 files.')
   await ui.unmount()
