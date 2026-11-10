@@ -1,6 +1,6 @@
 {
   "name": "mod-manager",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A pane (/mods) listing every mod you have: turn each on or off, run its commands, and update it when its marketplace has a newer version.",
   "author": { "name": "jerick" },
   "types": "./types/index.d.ts"

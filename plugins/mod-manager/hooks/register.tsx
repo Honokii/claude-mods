@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, RenderChildren } from 'claude-code'
 
 import type { ModRow } from '../types'
 
@@ -334,13 +334,30 @@ const PUZZLE = 'M5 8h3a2 2 0 1 1 4 0h3v3a2 2 0 1 1 0 4v3h-3a2 2 0 1 0-4 0H5v-3a2
 
 const iconOf = (name: string) => ICONS.find(([re]) => re.test(name))
 
+// Each mod keeps one colour, picked from its name: mid tones that read on light and dark.
+const TINTS = ['#1d9e75', '#7f77dd', '#d85a30', '#d4537e', '#378add', '#ba7517', '#639922']
+const OFF_TINT = '#888780'
+
+export function tintOf(name: string): string {
+  let h = 0
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0
+  return TINTS[h % TINTS.length]!
+}
+
+// The icon on a soft tile of the mod's colour; grey while it is off.
 export function iconSvg(name: string, isOn: boolean): string {
   const path = iconOf(name)?.[1] ?? PUZZLE
-  const color = isOn ? '#8a8a85' : '#c4c2bb'
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"><path d="${path}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+  const color = isOn ? tintOf(name) : OFF_TINT
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28"><rect width="28" height="28" rx="7" fill="${color}" fill-opacity="0.18"/><g transform="translate(5 5) scale(0.75)"><path d="${path}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></g></svg>`
 }
 
 export const iconGlyph = (name: string) => iconOf(name)?.[2] ?? '◇'
+
+const ATTENTION_BANNER = '#ba7517'
+const OTHER_BANNER = '#5f5e5a'
+const ON_BANNER = '#ffffff'
+// At most this many command buttons on a card.
+const MAX_CMDS = 3
 
 // ---------- hooks ----------
 
@@ -378,65 +395,140 @@ export const register: Register = on => {
     const others = all.filter(r => r.kind === 'plugin')
     const onCount = modRows.filter(r => r.isEnabled).length
 
-    // One mod: icon | title, what it does, how to use it | open and the switch.
-    const row = (r: ModRow) => {
+    const isSwitchable = (r: ModRow) => r.where === 'installed'
+    // Switched since this chat started: the change lands in the next chat.
+    const isPending = (r: ModRow) => isSwitchable(r) && start[r.id] !== undefined && start[r.id] !== r.isEnabled
+    const hasUpdate = (r: ModRow) => Boolean(r.latest) && isSwitchable(r)
+    const attention = all.filter(r => hasUpdate(r) || isPending(r))
+    const updates = all.filter(hasUpdate).length
+
+    const icon = (r: ModRow) =>
+      Svg ? (
+        <Svg source={iconSvg(r.name, r.isEnabled)} alt={`${r.title} icon`} width={28} height={28} />
+      ) : (
+        <Text color={r.isEnabled ? tintOf(r.name) : undefined} dimColor={!r.isEnabled || undefined}>
+          {iconGlyph(r.name)}
+        </Text>
+      )
+
+    const tile = (key: string, label: string, value: string, color?: string) => (
+      <Box key={key} flexDirection="column" flexGrow={1} borderStyle="round" borderColor={color} paddingX={1}>
+        <Text dimColor>{label}</Text>
+        {color ? (
+          <Text bold color={color}>
+            {value}
+          </Text>
+        ) : (
+          <Text bold>{value}</Text>
+        )}
+      </Box>
+    )
+
+    const banner = (key: string, color: string, label: string, extra?: RenderChildren) => (
+      <Box key={key} flexDirection="row" marginTop={1} backgroundColor={color} paddingX={1} alignItems="center" justifyContent="space-between">
+        <Text bold color={ON_BANNER}>
+          {label}
+        </Text>
+        {extra}
+      </Box>
+    )
+
+    // One line in "Needs a look": what changed and the button that settles it.
+    const attentionRow = (r: ModRow) => {
       const isBusy = running === r.id
-      const isSwitchable = r.where === 'installed'
       const wasOn = start[r.id]
-      const isPending = isSwitchable && wasOn !== undefined && wasOn !== r.isEnabled
+      const why = hasUpdate(r) ? `v${r.latest} ready` : r.isEnabled ? 'On from your next chat' : 'Off from your next chat'
+      const room = Math.max(10, cols - 12 - r.title.length)
+      return (
+        <Box key={`att-${r.id}`} flexDirection="row" gap={1} marginTop={1} paddingX={1} alignItems="center">
+          <Box flexDirection="row" gap={1} flexGrow={1}>
+            <Text bold>{clip(r.title, Math.max(8, cols - 22))}</Text>
+            <Text color={hasUpdate(r) ? ACCENT : WARN} wrap="truncate-end">
+              {clip(why, room)}
+            </Text>
+          </Box>
+          {isBusy ? (
+            <Text color={WARN}>…</Text>
+          ) : hasUpdate(r) ? (
+            <Button key={`up-${r.id}`} label="Update" onPress={() => act($, r, 'update')} />
+          ) : (
+            <Button key={`undo-${r.id}`} label="Undo" onPress={() => act($, r, wasOn ? 'enable' : 'disable')} />
+          )}
+        </Box>
+      )
+    }
+
+    // One mod as a card: icon tile | title, version, what it does | the switch; its commands below.
+    const card = (r: ModRow) => {
+      const isBusy = running === r.id
+      const wasOn = start[r.id]
       // Its commands run only where it is loaded: on now and on when this chat started.
-      const cmd = r.isEnabled && wasOn !== false ? r.commands[0] : undefined
-      // Room the right-hand controls take, in columns.
-      const right = (isSwitchable ? 7 : 0) + (cmd ? 3 : 0)
-      const left = Math.max(10, cols - right - (Svg ? 4 : 3))
-      const hint = cmd ? `/${short(cmd)} to open` : r.where === 'chat' ? 'This chat only' : r.where === 'folder' ? 'From a plugin folder' : ''
+      const cmds = r.isEnabled && wasOn !== false ? r.commands.slice(0, MAX_CMDS) : []
+      // The card's border and padding, the icon and the switch.
+      const left = Math.max(10, cols - 4 - (Svg ? 5 : 2) - (isSwitchable(r) ? 7 : 0))
+      const version = r.version ? ` v${r.version}` : ''
+      const origin = r.where === 'chat' ? 'This chat only' : r.where === 'folder' ? 'From a plugin folder' : ''
       const flip = () => act($, r, r.isEnabled ? 'disable' : 'enable')
       return (
-        <Box key={`row-${r.id}`} flexDirection="row" gap={1} marginTop={1} alignItems="flex-start">
-          {Svg ? (
-            <Svg source={iconSvg(r.name, r.isEnabled)} alt={`${r.title} icon`} width={18} height={18} />
-          ) : (
-            <Text dimColor={!r.isEnabled}>{iconGlyph(r.name)}</Text>
-          )}
-          <Box flexDirection="column" flexGrow={1} width={left}>
-            <Text bold dimColor={!r.isEnabled} wrap="truncate-end">
-              {clip(r.title, left)}
-            </Text>
-            {r.description ? (
-              <Text dimColor wrap="truncate-end">
-                {clip(r.description, left)}
-              </Text>
-            ) : null}
-            {hint ? (
-              <Text dimColor italic wrap="truncate-end">
-                {clip(hint, left)}
-              </Text>
-            ) : null}
-            {isPending ? (
-              <Text color={WARN} wrap="truncate-end">
-                {clip(r.isEnabled ? 'On from your next chat' : 'Off from your next chat', left)}
-              </Text>
-            ) : null}
-            {r.latest && isSwitchable ? (
-              <Box flexDirection="row" gap={1}>
-                <Text color={ACCENT}>{`v${r.latest} available`}</Text>
-                {isBusy ? null : <Button key={`up-${r.id}`} plain label="Update" onPress={() => act($, r, 'update')} />}
+        <Box
+          key={`card-${r.id}`}
+          flexDirection="column"
+          marginTop={1}
+          borderStyle="round"
+          borderColor={hasUpdate(r) ? ACCENT : undefined}
+          borderDimColor={hasUpdate(r) ? undefined : true}
+          paddingX={1}
+        >
+          <Box flexDirection="row" gap={1} alignItems="flex-start">
+            {icon(r)}
+            <Box flexDirection="column" flexGrow={1} width={left}>
+              <Box flexDirection="row">
+                <Text bold dimColor={!r.isEnabled || undefined} wrap="truncate-end">
+                  {clip(r.title, left)}
+                </Text>
+                {version && r.title.length + version.length <= left ? <Text dimColor>{version}</Text> : null}
               </Box>
-            ) : null}
-          </Box>
-          <Box flexDirection="row" gap={1} alignItems="center">
-            {cmd ? <Button key={`cmd-${r.id}-${cmd}`} plain dimColor label="▶" onPress={() => runCommand($, cmd)} /> : null}
-            {isSwitchable ? (
+              {r.description ? (
+                <Text dimColor wrap="truncate-end">
+                  {clip(r.description, left)}
+                </Text>
+              ) : null}
+              {isPending(r) ? (
+                <Text color={WARN} wrap="truncate-end">
+                  {clip(r.isEnabled ? 'On from your next chat' : 'Off from your next chat', left)}
+                </Text>
+              ) : hasUpdate(r) ? (
+                <Text color={ACCENT} wrap="truncate-end">
+                  {clip(`v${r.latest} available`, left)}
+                </Text>
+              ) : origin ? (
+                <Text dimColor italic wrap="truncate-end">
+                  {clip(origin, left)}
+                </Text>
+              ) : null}
+            </Box>
+            {isSwitchable(r) ? (
               isBusy ? (
                 <Text color={WARN}>…</Text>
               ) : Svg ? (
-                // One button is the switch: a native button, dim while off.
                 <Button key={`sw-${r.id}`} dimColor={!r.isEnabled} label={r.isEnabled ? 'On' : 'Off'} onPress={flip} />
               ) : (
                 <Button key={`sw-${r.id}`} plain label={r.isEnabled ? '● On' : '○ Off'} onPress={flip} />
               )
             ) : null}
           </Box>
+          {cmds.length ? (
+            <Box flexDirection="row" gap={1} marginTop={Svg ? 1 : 0} paddingLeft={Svg ? 5 : 2}>
+              {cmds.map(c =>
+                // A desktop Button takes `plain` only as true; there it stays a full button.
+                Svg ? (
+                  <Button key={`cmd-${r.id}-${c}`} label={clip(`▶ /${short(c)}`, left)} onPress={() => runCommand($, c)} />
+                ) : (
+                  <Button key={`cmd-${r.id}-${c}`} plain label={clip(`▶ /${short(c)}`, left)} onPress={() => runCommand($, c)} />
+                ),
+              )}
+            </Box>
+          ) : null}
         </Box>
       )
     }
@@ -444,20 +536,33 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column" width={cols}>
         <Box flexDirection="row" justifyContent="space-between" gap={1}>
-          <Text bold>{isReady ? `${modRows.length} mods · ${onCount} on` : 'Looking for mods…'}</Text>
+          <Text bold>{isReady ? 'Mods' : 'Looking for mods…'}</Text>
           <Button key="refresh" plain dimColor label="↻ Refresh" onPress={() => rescan($)} />
         </Box>
+        {isReady ? (
+          <Box flexDirection="row" gap={1} marginTop={1}>
+            {tile('t-mods', 'Mods', String(modRows.length))}
+            {tile('t-on', 'On', String(onCount))}
+            {tile('t-up', 'Updates', String(updates), updates ? ACCENT : undefined)}
+          </Box>
+        ) : null}
+        {attention.length ? (
+          <Box flexDirection="column">
+            {banner('h-attention', ATTENTION_BANNER, 'Needs a look', <Text color={ON_BANNER}>{String(attention.length)}</Text>)}
+            {attention.map(attentionRow)}
+          </Box>
+        ) : null}
         {isReady && !modRows.length ? <Text dimColor>No mods found.</Text> : null}
-        {modRows.map(row)}
+        {modRows.map(card)}
         {others.length ? (
-          <Box flexDirection="column" marginTop={1}>
-            <Button
-              key="plugins"
-              plain
-              label={`${withPlugins ? '▾' : '▸'} Other plugins (${others.length})`}
-              onPress={() => update($, showPlugins, v => !v)}
-            />
-            {withPlugins ? others.map(row) : null}
+          <Box flexDirection="column">
+            {banner(
+              'h-plugins',
+              OTHER_BANNER,
+              `Other plugins (${others.length})`,
+              <Button key="plugins" plain label={withPlugins ? '▾ Hide' : '▸ Show'} onPress={() => update($, showPlugins, v => !v)} />,
+            )}
+            {withPlugins ? others.map(card) : null}
           </Box>
         ) : null}
         <Box flexDirection="column" marginTop={1}>

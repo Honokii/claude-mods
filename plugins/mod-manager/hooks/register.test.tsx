@@ -60,11 +60,16 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(ran.text).toBe('Opened the Mods pane.')
 
     const ui = await $.ui.mount({ ...PANE, surface } as never)
-    expect(await ui.find({ type: 'Text', text: /^2 mods · 1 on$/ })).toBeDefined()
+    // Tiles: mods, on, updates.
+    expect(await ui.find({ key: 't-mods' })).toBeDefined()
+    expect(await ui.find({ key: 't-up' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /A band above the prompt/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /v0\.2\.0 available/ })).toBeDefined()
+    // The update waits under "Needs a look", with its button.
+    expect(await ui.find({ type: 'Text', text: /^Needs a look$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^v0\.2\.0 ready$/ })).toBeDefined()
+    expect(await ui.find({ key: 'up-band@my-mods' })).toBeDefined()
     expect(await ui.find({ key: 'cmd-band@my-mods-band' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /^\/band to open$/ })).toBeDefined()
     // The switch is the one button; no second control beside it.
     expect(await ui.find({ key: 'sw-pane@my-mods' })).toBeDefined()
     if (surface === 'desktop') expect(await ui.find({ type: 'Svg', alt: 'Band icon' } as never)).toBeDefined()
@@ -77,5 +82,13 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.press({ key: 'sw-pane@my-mods' })
     expect(runs.some(r => r.join(' ').endsWith('plugin enable pane@my-mods --scope user'))).toBe(true)
     expect(await ui.find({ type: 'Text', text: /Pane is on from the next chat on/ })).toBeDefined()
+
+    // Switched since this chat started: listed under "Needs a look" with Undo.
+    LIST[1]!.enabled = true
+    await ui.press({ key: 'refresh' })
+    expect(await ui.find({ type: 'Text', text: /^On from your next chat$/ })).toBeDefined()
+    await ui.press({ key: 'undo-pane@my-mods' })
+    expect(runs.some(r => r.join(' ').endsWith('plugin disable pane@my-mods --scope user'))).toBe(true)
+    LIST[1]!.enabled = false
   })
 }
