@@ -22,7 +22,6 @@ const EMPTY: Inventory = { connectors: [], files: [], skills: [] }
 const inv = atom({ plugin: 'chat-inventory', key: 'inv' } as const, EMPTY, { shape: 'inv-1' })
 const plan = atom({ plugin: 'chat-inventory', key: 'plan' } as const, [] as Step[], { shape: 'plan-1' })
 const open = atom({ plugin: 'chat-inventory', key: 'open' } as const, '')
-const folded = atom({ plugin: 'chat-inventory', key: 'folded' } as const, [] as string[])
 const expanded = atom({ plugin: 'chat-inventory', key: 'expanded' } as const, [] as string[])
 
 // Module variables start over on a reload; the lists live in $.state.
@@ -338,24 +337,33 @@ const clock = (ms: number) => {
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`
 const newest = <T extends { seq: number }>(rows: T[]) => [...rows].sort((a, b) => b.seq - a.seq)
 
-// A steady colour per connector name.
-const hue = (s: string) => [...s].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) % 360, 7)
+// Each connector keeps one colour, picked from its name: mid tones that read on light and dark.
+const TINTS = ['#1d9e75', '#7f77dd', '#d85a30', '#d4537e', '#378add', '#ba7517', '#639922']
 
-// A letter tile with the call count in a corner badge.
-export function badgeSvg(name: string, count: number): string {
-  const letter = (name.match(/[A-Za-z0-9]/)?.[0] ?? '?').toUpperCase()
-  const label = count > 99 ? '99+' : String(count)
-  const w = label.length > 1 ? 9 + label.length * 4 : 15
-  const font = 'font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-weight="700" fill="#ffffff"'
+export function tintOf(name: string): string {
+  let h = 0
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0
+  return TINTS[h % TINTS.length]!
+}
+
+const letterOf = (name: string) => (name.match(/[A-Za-z0-9]/)?.[0] ?? '?').toUpperCase()
+
+// The connector's first letter on a soft tile of its colour, like the Mods pane's icons.
+export function iconSvg(name: string): string {
+  const color = tintOf(name)
   return (
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 44 40" width="44" height="40">' +
-    `<rect x="1" y="7" width="32" height="32" rx="8" fill="hsl(${hue(name)} 55% 45%)"/>` +
-    `<text x="17" y="29" text-anchor="middle" font-size="16" ${font}>${letter}</text>` +
-    `<rect x="${42 - w}" y="1" width="${w}" height="15" rx="7.5" fill="${ACCENT}" stroke="#ffffff" stroke-width="1.5"/>` +
-    `<text x="${42 - w / 2}" y="12" text-anchor="middle" font-size="10" ${font}>${label}</text>` +
+    '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28">' +
+    `<rect width="28" height="28" rx="7" fill="${color}" fill-opacity="0.18"/>` +
+    `<text x="14" y="19" text-anchor="middle" font-size="14" font-weight="600" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif" fill="${color}">${letterOf(name)}</text>` +
     '</svg>'
   )
 }
+
+// The band behind "Now": amber while working, green once every step is done.
+const NOW_BANNER = '#ba7517'
+const DONE_BANNER = '#3b6d11'
+const OTHER_BANNER = '#5f5e5a'
+const ON_BANNER = '#ffffff'
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
@@ -403,164 +411,238 @@ export const register: Register = on => {
     const ui = $.ui.resolve(e)
     const { Box, Text, Button } = ui
     const Svg = e.surface !== 'terminal' && 'Svg' in ui ? ui.Svg : null
-    const width = Math.max(24, e.props.bodyColumns)
-    const inner = width - 4
+    const cols = Math.max(30, e.props.bodyColumns)
     const list = await read($, inv)
     const steps = await read($, plan)
     const openServer = await read($, open)
-    const closed = await read($, folded)
     const all = await read($, expanded)
+    const isExpanded = (id: string) => all.includes(id)
+    const flip = (id: string) => update($, expanded, cur => toggle(cur, id))
 
-    const section = (id: string, title: string, right: string, body: unknown) => {
-      const isOpen = !closed.includes(id)
-      return (
-        <Box key={id} flexDirection="column" borderStyle="round" paddingX={1} width={width} flexShrink={0}>
-          <Box flexDirection="row" justifyContent="space-between" width={inner}>
-            <Button key={`sec-${id}`} plain label={`${isOpen ? '▾' : '▸'} ${title}`} onPress={() => update($, folded, cur => toggle(cur, id))} />
-            {right ? <Text dimColor>{right}</Text> : null}
-          </Box>
-          {isOpen ? (body as never) : null}
-        </Box>
-      )
-    }
+    const conns = newest(list.connectors)
+    const files = newest(list.files)
+    const skills = newest(list.skills)
+    const callCount = conns.reduce((n, c) => n + c.count, 0)
+
+    const tile = (key: string, label: string, value: string) => (
+      <Box key={key} flexDirection="column" flexGrow={1} borderStyle="round" paddingX={1}>
+        <Text dimColor>{label}</Text>
+        <Text bold>{value}</Text>
+      </Box>
+    )
+
+    const banner = (key: string, color: string, label: string, extra?: unknown) => (
+      <Box key={key} flexDirection="row" marginTop={1} backgroundColor={color} paddingX={1} alignItems="center" justifyContent="space-between">
+        <Text bold color={ON_BANNER}>
+          {clip(label, cols - 12)}
+        </Text>
+        {extra as never}
+      </Box>
+    )
+
     const row = (key: string, left: unknown, right?: unknown) => (
-      <Box key={key} flexDirection="row" justifyContent="space-between" width={inner} height={1} gap={1}>
+      <Box key={key} flexDirection="row" justifyContent="space-between" height={1} gap={1}>
         <Box flexShrink={1} flexGrow={1} height={1} overflow="hidden">
           {left as never}
         </Box>
         {right ? <Box flexShrink={0}>{right as never}</Box> : null}
       </Box>
     )
+
     // The first few rows, then a Show all / Show fewer toggle.
     const few = <T,>(id: string, rows: T[], draw: (r: T, i: number) => unknown) => {
-      const isAll = all.includes(id)
+      const isAll = isExpanded(id)
       const shown = isAll ? rows : rows.slice(0, FEW)
       const more = rows.length - FEW
       return [
         ...shown.map(draw),
-        more > 0 ? (
-          <Button key={`more-${id}`} plain dimColor label={isAll ? 'Show fewer' : `Show all (+${more})`} onPress={() => update($, expanded, cur => toggle(cur, id))} />
-        ) : null,
+        more > 0 ? <Button key={`more-${id}`} plain dimColor label={isAll ? 'Show fewer' : `Show all (+${more})`} onPress={() => flip(id)} /> : null,
       ] as never
     }
-    const none = <Text dimColor>None used yet</Text>
 
-    // To-do
-    const doneCount = steps.filter(s => s.status === 'completed').length
-    const todoBody = steps.length
-      ? steps.map((s, i) => {
-          const isDone = s.status === 'completed'
-          const isNow = s.status === 'in_progress'
-          return (
-            <Box key={`todo-${i}`} flexDirection="row" width={inner}>
-              <Box width={2} flexShrink={0}>
-                {isDone ? <Text color={OK}>✓</Text> : isNow ? <Text color={ACCENT}>●</Text> : <Text dimColor>○</Text>}
-              </Box>
-              <Box flexGrow={1} flexShrink={1}>
-                <Text wrap="wrap" dimColor={isDone} strikethrough={isDone} bold={isNow}>
-                  {s.text}
-                </Text>
-              </Box>
-            </Box>
-          )
-        })
-      : <Text dimColor>{NO_PLAN}</Text>
-
-    // Connectors: tiles on desktop, rows in the terminal; a press shows its calls.
-    const conns = newest(list.connectors)
-    const pick = (c: Connector) => update($, open, cur => (cur === c.server ? '' : c.server))
-    const callList = (c: Connector) => {
-      const calls = [...c.calls].reverse()
+    // A solid bar: an image on the desktop, characters in the terminal.
+    const bar = (part: number, color: string) => {
+      if (Svg) {
+        // No width given, so the drawing takes the pane's width and keeps its 100:1 shape.
+        const w = Math.round(1000 * part)
+        const source = `<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="10" viewBox="0 0 1000 10"><rect width="1000" height="10" rx="5" fill="#888888" fill-opacity="0.25"/><rect width="${w}" height="10" rx="5" fill="${color}"/></svg>`
+        return (
+          <Box marginTop={1}>
+            <Svg source={source} alt={`${Math.round(part * 100)}% done`} />
+          </Box>
+        )
+      }
+      const width = Math.max(10, cols - 2)
+      const filled = Math.round(width * part)
       return (
-        <Box key={`calls-${c.server}`} flexDirection="column" width={inner} marginTop={1}>
-          <Text dimColor wrap="truncate-end">{`${c.name} calls, newest first`}</Text>
-          {few(`calls-${c.server}`, calls, (call, i) =>
-            row(
-              `call-${c.server}-${i}`,
-              <Text wrap="truncate-end">
-                {call.tool}
-                {call.arg ? <Text dimColor>{`  ${call.arg}`}</Text> : null}
-              </Text>,
-              <Text dimColor>{clock(call.at) || ' '}</Text>,
-            ),
-          )}
+        <Text wrap="truncate">
+          <Text color={color}>{'━'.repeat(filled)}</Text>
+          <Text dimColor>{'━'.repeat(width - filled)}</Text>
+        </Text>
+      )
+    }
+
+    // ----- Now: the step being worked on, the bar, what comes next -----
+    const nowSection = () => {
+      if (!steps.length) {
+        return (
+          <Box key="now" flexDirection="column">
+            {banner('h-now', OTHER_BANNER, 'Now')}
+            <Box paddingX={1}>
+              <Text dimColor>{NO_PLAN}</Text>
+            </Box>
+          </Box>
+        )
+      }
+      const doneCount = steps.filter(s => s.status === 'completed').length
+      const isDone = doneCount === steps.length
+      const at = steps.findIndex(s => s.status === 'in_progress')
+      const nowIdx = at >= 0 ? at : steps.findIndex(s => s.status === 'pending')
+      const now = isDone ? undefined : steps[nowIdx]
+      const nextStep = steps.find((s, i) => i > nowIdx && s.status === 'pending')
+      const part = doneCount / steps.length
+      const isAll = isExpanded('todo')
+      const label = isDone ? `Done · ${doneCount} of ${steps.length}` : `Now · step ${nowIdx + 1} of ${steps.length}`
+      return (
+        <Box key="now" flexDirection="column">
+          {banner('h-now', isDone ? DONE_BANNER : NOW_BANNER, label, <Text color={ON_BANNER}>{`${Math.round(part * 100)}%`}</Text>)}
+          <Box flexDirection="column" paddingX={1}>
+            {now ? (
+              <Text bold wrap="wrap">
+                {now.text}
+              </Text>
+            ) : (
+              <Text color={OK}>Every step is done.</Text>
+            )}
+            {bar(part, isDone ? OK : ACCENT)}
+            {nextStep && !isAll ? (
+              <Text dimColor wrap="truncate-end">
+                {clip(`Next: ${nextStep.text}`, cols - 2)}
+              </Text>
+            ) : null}
+            {isAll
+              ? steps.map((s, i) => {
+                  const isStepDone = s.status === 'completed'
+                  const isNow = s.status === 'in_progress'
+                  return (
+                    <Box key={`todo-${i}`} flexDirection="row">
+                      <Box width={2} flexShrink={0}>
+                        {isStepDone ? <Text color={OK}>✓</Text> : isNow ? <Text color={ACCENT}>●</Text> : <Text dimColor>○</Text>}
+                      </Box>
+                      <Box flexGrow={1} flexShrink={1}>
+                        <Text wrap="wrap" dimColor={isStepDone} strikethrough={isStepDone} bold={isNow}>
+                          {s.text}
+                        </Text>
+                      </Box>
+                    </Box>
+                  )
+                })
+              : null}
+            <Button key="steps" plain dimColor label={isAll ? '▾ Hide steps' : `▸ All steps (${steps.length})`} onPress={() => flip('todo')} />
+          </Box>
         </Box>
       )
     }
-    let connBody: unknown = none
-    if (conns.length && Svg) {
-      const tileCols = 12
-      const perRow = Math.max(1, Math.floor(inner / tileCols))
-      const rows: Connector[][] = []
-      for (let i = 0; i < conns.length; i += perRow) rows.push(conns.slice(i, i + perRow))
-      connBody = rows.map((r, ri) => {
-        const shown = r.find(c => c.server === openServer)
-        return (
-          <Box key={`trow-${ri}`} flexDirection="column" width={inner}>
-            <Box flexDirection="row" width={inner}>
-              {r.map(c => (
-                <Box key={`tile-${c.server}`} flexDirection="column" alignItems="center" width={tileCols} flexShrink={0}>
-                  <Svg source={badgeSvg(c.name, c.count)} alt={`${c.name}, ${plural(c.count, 'call')}`} width={44} height={40} />
-                  <Button key={`c-${c.server}`} plain dimColor={openServer !== c.server} label={clip(c.name, tileCols - 1)} onPress={() => pick(c)} />
-                </Box>
-              ))}
+
+    // ----- Connectors: one card each, its latest call on show, every call on press -----
+    const pick = (c: Connector) => update($, open, cur => (cur === c.server ? '' : c.server))
+    const card = (c: Connector) => {
+      const isOpen = openServer === c.server
+      const calls = [...c.calls].reverse()
+      const last = calls[0]
+      const color = tintOf(c.name)
+      const count = plural(c.count, 'call')
+      // The card's border and padding, the icon and the count.
+      const left = Math.max(8, cols - 4 - (Svg ? 5 : 2) - count.length - 1)
+      const callText = (call: Call) => `${call.tool}${call.arg ? ` · ${call.arg}` : ''}`
+      return (
+        <Box key={`card-${c.server}`} flexDirection="column" marginTop={1} borderStyle="round" borderColor={isOpen ? color : undefined} borderDimColor={isOpen ? undefined : true} paddingX={1}>
+          <Box flexDirection="row" gap={1} alignItems="flex-start">
+            {Svg ? <Svg source={iconSvg(c.name)} alt={`${c.name} icon`} width={28} height={28} /> : <Text color={color}>{letterOf(c.name)}</Text>}
+            <Box flexDirection="column" flexGrow={1} width={left}>
+              <Button key={`c-${c.server}`} plain label={clip(`${isOpen ? '▾' : '▸'} ${c.name}`, left)} onPress={() => pick(c)} />
+              {last && !isOpen ? (
+                <Text dimColor wrap="truncate-end">
+                  {clip(`${callText(last)}${last.at ? `  ${clock(last.at)}` : ''}`, left)}
+                </Text>
+              ) : null}
             </Box>
-            {shown ? callList(shown) : null}
+            <Text color={ACCENT}>{count}</Text>
           </Box>
-        )
-      })
-    } else if (conns.length) {
-      connBody = conns.map(c => (
-        <Box key={`crow-${c.server}`} flexDirection="column" width={inner}>
-          {row(
-            `cl-${c.server}`,
-            <Button key={`c-${c.server}`} plain label={clip(`${openServer === c.server ? '▾' : '▸'} ${c.name}`, inner - 12)} onPress={() => pick(c)} />,
-            <Text color={ACCENT}>{plural(c.count, 'call')}</Text>,
-          )}
-          {openServer === c.server ? callList(c) : null}
+          {isOpen ? (
+            <Box flexDirection="column" marginTop={Svg ? 1 : 0}>
+              <Text dimColor wrap="truncate-end">{`${c.name} calls, newest first`}</Text>
+              {few(`calls-${c.server}`, calls, (call, i) =>
+                row(
+                  `call-${c.server}-${i}`,
+                  <Text wrap="truncate-end">
+                    {call.tool}
+                    {call.arg ? <Text dimColor>{`  ${call.arg}`}</Text> : null}
+                  </Text>,
+                  <Text dimColor>{clock(call.at) || ' '}</Text>,
+                ),
+              )}
+            </Box>
+          ) : null}
         </Box>
-      ))
+      )
     }
 
-    // Context files: name, then its folder dimmed.
-    const files = newest(list.files)
-    const fileBody = files.length
-      ? few('files', files, f => {
-          const p = norm(f.path)
-          const cut = p.lastIndexOf('/')
-          const parts = p.slice(0, Math.max(0, cut)).split('/').filter(Boolean)
-          const folder = parts.length > 1 ? `…/${parts[parts.length - 1]}` : parts.join('/')
-          return row(
-            `f-${f.path}`,
-            <Text wrap="truncate-end">
-              {p.slice(cut + 1)}
-              <Text dimColor>{`  ${folder}`}</Text>
-            </Text>,
-            f.isAuto ? <Text color={INFO}>auto</Text> : null,
-          )
-        })
-      : none
-
-    const skills = newest(list.skills)
-    const skillBody = skills.length
-      ? few('skills', skills, s =>
-          row(
-            `s-${s.name}`,
-            <Text wrap="truncate-end">
-              <Text color={ACCENT}>/</Text>
-              {s.name}
-            </Text>,
-            <Text dimColor>{plural(s.count, 'use')}</Text>,
-          ),
-        )
-      : none
+    // ----- Files and skills: folded under a grey band -----
+    const fileRow = (f: FileRow) => {
+      const p = norm(f.path)
+      const cut = p.lastIndexOf('/')
+      const parts = p.slice(0, Math.max(0, cut)).split('/').filter(Boolean)
+      const folder = parts.length > 1 ? `…/${parts[parts.length - 1]}` : parts.join('/')
+      return row(
+        `f-${f.path}`,
+        <Text wrap="truncate-end">
+          {p.slice(cut + 1)}
+          <Text dimColor>{`  ${folder}`}</Text>
+        </Text>,
+        f.isAuto ? <Text color={INFO}>auto</Text> : null,
+      )
+    }
+    const skillRow = (s: SkillRow) =>
+      row(
+        `s-${s.name}`,
+        <Text wrap="truncate-end">
+          <Text color={ACCENT}>/</Text>
+          {s.name}
+        </Text>,
+        <Text dimColor>{plural(s.count, 'use')}</Text>,
+      )
+    const extras = files.length + skills.length
+    const isMoreOpen = isExpanded('more')
 
     return (
-      <Box flexDirection="column" width={width}>
-        {section('todo', 'To-do', steps.length ? `${doneCount} of ${steps.length}` : '', todoBody)}
-        {section('connectors', 'Connectors', String(conns.length), connBody)}
-        {section('files', 'Context files', String(files.length), fileBody)}
-        {section('skills', 'Skills', String(skills.length), skillBody)}
+      <Box flexDirection="column" width={cols}>
+        <Text bold>{TITLE}</Text>
+        <Box flexDirection="row" gap={1} marginTop={1}>
+          {tile('t-calls', 'Calls', String(callCount))}
+          {tile('t-files', 'Files', String(files.length))}
+          {tile('t-skills', 'Skills', String(skills.length))}
+        </Box>
+        {nowSection()}
+        {banner('h-conns', OTHER_BANNER, `Connectors (${conns.length})`)}
+        {conns.length ? (
+          conns.map(card)
+        ) : (
+          <Box paddingX={1}>
+            <Text dimColor>No connectors used yet.</Text>
+          </Box>
+        )}
+        {banner('h-more', OTHER_BANNER, `Files and skills (${extras})`, <Button key="sec-more" plain label={isMoreOpen ? '▾ Hide' : '▸ Show'} onPress={() => flip('more')} />)}
+        {isMoreOpen ? (
+          <Box flexDirection="column" paddingX={1}>
+            <Text dimColor>Context files</Text>
+            {files.length ? few('files', files, fileRow) : <Text dimColor>None read yet.</Text>}
+            <Box marginTop={1}>
+              <Text dimColor>Skills</Text>
+            </Box>
+            {skills.length ? few('skills', skills, skillRow) : <Text dimColor>None used yet.</Text>}
+          </Box>
+        ) : null}
       </Box>
     )
   })

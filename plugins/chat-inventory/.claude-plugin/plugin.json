@@ -1,7 +1,7 @@
 {
   "name": "chat-inventory",
-  "version": "0.1.0",
-  "description": "A pane (/inventory) listing this chat's to-do list, connectors and their calls, context files and skills.",
+  "version": "0.2.0",
+  "description": "A pane (/inventory): tiles, a Now band for the current to-do step, connector cards with their calls, then context files and skills.",
   "author": { "name": "jerick" },
   "types": "./types/index.d.ts"
 }

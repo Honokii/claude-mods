@@ -52,9 +52,8 @@ declare module 'claude-code' {
       plan: Shaped<Step[]>
       // The connector server whose calls are shown; '' for none.
       open: string
-      // Sections closed with their header arrow.
-      folded: string[]
-      // Sections showing every row instead of the first few.
+      // What is unfolded: 'todo' (every step), 'more' (files and skills),
+      // and lists showing every row instead of the first few.
       expanded: string[]
     }
   }

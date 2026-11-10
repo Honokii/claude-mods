@@ -44,12 +44,27 @@ test('counts connector calls, files, skills and the app plan, and shows calls on
   await $.tool.call({ tool: 'mcp__ccd_turn__update_plan', tool_use_id: 'p2', advance: true } as never)
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' } as never)
-  expect(await ui.find({ type: 'Text', text: /^1 of 2$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /2 calls/ })).toBeDefined()
+  // Tiles: two connector calls, one file read plus CLAUDE.md, one skill.
+  expect(await ui.find({ type: 'Text', text: /^Calls$/ })).toBeDefined()
+  // The Now band: step 2 of 2 is underway, half done.
+  expect(await ui.find({ type: 'Text', text: /^Now · step 2 of 2$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^50%$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Write ours$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Scan the mod$/ })).toBeUndefined()
+  await ui.press({ key: 'steps' })
+  expect(await ui.find({ type: 'Text', text: /^Scan the mod$/ })).toBeDefined()
+
+  expect(await ui.find({ type: 'Text', text: /^2 calls$/ })).toBeDefined()
   const gmail = await ui.find({ key: 'c-d4f71c04-03e2-45e0-ab0a-27253e0f2ece' })
   expect((gmail as unknown as { props: { label: string } }).props.label).toBe('▸ Gmail')
+  // The card shows the latest call before it is opened.
+  expect(await ui.find({ type: 'Text', text: /thread · abc/ })).toBeDefined()
   // The desktop app's own session tools are not a connector.
   expect(await ui.find({ key: 'c-ccd_session' })).toBeUndefined()
+
+  // Files and skills stay folded until Show.
+  expect(await ui.find({ type: 'Text', text: /main\.ts/ })).toBeUndefined()
+  await ui.press({ key: 'sec-more' })
   expect(await ui.find({ type: 'Text', text: /main\.ts/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /x\.txt/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /^1 use$/ })).toBeDefined()
@@ -59,11 +74,11 @@ test('counts connector calls, files, skills and the app plan, and shows calls on
   expect(await ui.find({ type: 'Text', text: /Gmail calls, newest first/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /invoice/ })).toBeDefined()
 
-  await ui.press({ key: 'sec-files' })
+  await ui.press({ key: 'sec-more' })
   expect(await ui.find({ type: 'Text', text: /main\.ts/ })).toBeUndefined()
 })
 
-test('draws connector tiles on desktop and opens with /inventory', async ($, on) => {
+test('draws connector cards on desktop and opens with /inventory', async ($, on) => {
   setUp(on)
   await $.session.start({ cwd: 'C:/repo', surface: 'desktop', isInteractive: true })
   await $.tool.call({ tool: 'mcp__claude-in-chrome__navigate', tool_use_id: 'n1', url: 'https://example.com' } as never)
@@ -72,4 +87,16 @@ test('draws connector tiles on desktop and opens with /inventory', async ($, on)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' } as never)
   expect(await ui.find({ type: 'Svg' })).toBeDefined()
   expect(await ui.find({ key: 'c-claude-in-chrome' })).toBeDefined()
+  // No to-do list yet: the Now band says so.
+  expect(await ui.find({ type: 'Text', text: /No to-do list yet/ })).toBeDefined()
+})
+
+test('turns the Now band to Done once wrap_up ticks every step', async ($, on) => {
+  setUp(on)
+  await $.session.start({ cwd: 'C:/repo', surface: 'desktop', isInteractive: true })
+  await $.tool.call({ tool: 'mcp__ccd_turn__update_plan', tool_use_id: 'p1', items: [{ content: 'One', status: 'in_progress' }, { content: 'Two', status: 'pending' }] } as never)
+  await $.tool.call({ tool: 'mcp__ccd_turn__wrap_up', tool_use_id: 'w1', recap: 'x' } as never)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' } as never)
+  expect(await ui.find({ type: 'Text', text: /^Done · 2 of 2$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^100%$/ })).toBeDefined()
 })
