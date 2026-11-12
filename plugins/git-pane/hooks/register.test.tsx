@@ -200,3 +200,82 @@ test('the switcher lists the session folder, its worktrees and added repos', asy
   expect(runs.some(r => r.startsWith('status'))).toBe(true)
   expect((await $.command.run({ command: 'git', args: 'remove D:/other' } as never)).text).toBe('Removed D:/other from the Git pane.')
 })
+
+// A session folder that is no repo, with three repos one level down (and a plain folder).
+const MULTI_STATUS: Record<string, string> = {
+  'D:/Betmate/core': ['# branch.head develop', '# branch.upstream origin/develop', '# branch.ab +0 -4', ''].join('\0'),
+  'D:/Betmate/games': ['# branch.head wrath', '# branch.upstream origin/wrath', '# branch.ab +2 -0', '1 .M N... 100644 100644 100644 a b src/ui.ts', '1 M. N... 100644 100644 100644 a b README.md', '? new.txt', ''].join('\0'),
+  'D:/Betmate/stack': ['# branch.head main', '# branch.upstream origin/main', '# branch.ab +0 -0', ''].join('\0'),
+}
+
+const setUpMulti = (on: Parameters<TestBody>[1], runs: string[]) => {
+  mock.clock(on, { now: NOW })
+  mock.store(on)
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: 'D:\\Betmate' }) as never)
+  on('command.register', () => ({ value: { command: 'git' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.panes', () => ({ value: [{ id: 'git-pane' }] }) as never)
+  on('tool.call', () => ({ result: 'ok' }) as never)
+  on('fs.list', () =>
+    ({
+      value: [
+        { name: 'core', kind: 'dir', isLink: false },
+        { name: 'games', kind: 'dir', isLink: false },
+        { name: 'stack', kind: 'dir', isLink: false },
+        { name: 'docs', kind: 'dir', isLink: false },
+        { name: '.claude', kind: 'dir', isLink: false },
+        { name: 'notes.md', kind: 'file', isLink: false },
+      ],
+    }) as never,
+  )
+  on('fs.exists', (_, e) => ({ value: /\/(core|games|stack)\/\.git$/.test(norm(e.path)) }) as never)
+  on('process.run', (_, e) => {
+    const args = e.argv.slice(1)
+    const cwd = norm(e.init?.cwd ?? '')
+    runs.push(`${cwd}: ${args.join(' ')}`)
+    const a = args.join(' ')
+    if (a === 'rev-parse --show-toplevel') return cwd in MULTI_STATUS ? ok(`${cwd}\n`) : fail('fatal: not a git repository')
+    if (a.startsWith('status')) return ok(MULTI_STATUS[cwd] ?? '')
+    if (a === 'log -1 --format=%aI') return ok('2026-11-12T09:00:00Z\n')
+    return fakeGit(args, 'C:/repo')
+  })
+}
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`${surface}: a folder of repos opens on the overview; Open and All repos move between views`, async ($, on) => {
+    const runs: string[] = []
+    setUpMulti(on, runs)
+    await $.session.start({ cwd: 'D:/Betmate', surface, isInteractive: true })
+    await $.command.run({ command: 'git', args: '' } as never)
+    const ui = await $.ui.mount({ ...PANE, surface } as never)
+
+    expect(await ui.find({ type: 'Text', text: /is not a git repository/ })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: /^session folder · 3 repos inside$/ })).toBeDefined()
+    expect(await ui.find({ key: 'open-D:/Betmate/core' })).toBeDefined()
+    expect(await ui.find({ key: 'open-D:/Betmate/stack' })).toBeDefined()
+    expect(await ui.find({ key: 'open-D:/Betmate/docs' })).toBeUndefined()
+    // Behind and ahead: the band, with Pull and Push run in that repo.
+    expect(await ui.find({ type: 'Text', text: /^core · ↓4 on origin\/develop$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^games · ↑2 not pushed$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^3 changed · 1 staged · last commit 3h ago$/ })).toBeDefined()
+    await ui.press({ key: 'look-pull-D:/Betmate/core' })
+    expect(runs).toContain('D:/Betmate/core: pull --ff-only')
+
+    // Claude edits in games: its card says so.
+    await $.tool.call({ tool: 'Edit', tool_use_id: 'e1', file_path: 'D:\\Betmate\\games\\src\\ui.ts', old_string: 'a', new_string: 'b' } as never)
+    await ui.press({ key: 'refresh' })
+    expect(await ui.find({ type: 'Text', text: /^chat 1$/ })).toBeDefined()
+
+    await ui.press({ key: 'open-D:/Betmate/core' })
+    expect(await ui.find({ key: 'all-repos' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^⎇ develop$/ })).toBeDefined()
+    expect(runs.some(r => r.startsWith('D:/Betmate/core: log --topo-order'))).toBe(true)
+    await ui.press({ key: 'repos' })
+    expect(await ui.find({ key: 'pick-D:/Betmate/games' })).toBeDefined()
+
+    await ui.press({ key: 'all-repos' })
+    expect(await ui.find({ key: 'open-D:/Betmate/games' })).toBeDefined()
+    expect(await ui.find({ key: 'all-repos' })).toBeUndefined()
+  })
+}

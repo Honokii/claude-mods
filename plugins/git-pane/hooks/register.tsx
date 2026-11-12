@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderChildren } from 'claude-code'
 
-import type { Commit, FileRow, RepoRow, Snapshot } from '../types'
+import type { Commit, FileRow, RepoRow, RepoSummary, Snapshot } from '../types'
 import {
   LOG_FORMAT,
   ago,
@@ -43,6 +43,8 @@ const STORE_REPOS = 'repos'
 const snap = atom({ plugin: 'git-pane', key: 'snap' } as const, null as Snapshot | null, { shape: 'snap-1' })
 const repo = atom({ plugin: 'git-pane', key: 'repo' } as const, '')
 const repos = atom({ plugin: 'git-pane', key: 'repos' } as const, [] as RepoRow[], { shape: 'repos-1' })
+const isMulti = atom({ plugin: 'git-pane', key: 'isMulti' } as const, false)
+const overview = atom({ plugin: 'git-pane', key: 'overview' } as const, [] as RepoSummary[], { shape: 'overview-1' })
 const edits = atom({ plugin: 'git-pane', key: 'edits' } as const, [] as string[], { shape: 'edits-1' })
 const busy = atom({ plugin: 'git-pane', key: 'busy' } as const, '')
 const note = atom({ plugin: 'git-pane', key: 'note' } as const, '')
@@ -156,14 +158,36 @@ async function addedRepos($: EngineInterface): Promise<string[]> {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
 }
 
+// Repos one level down in a folder that is no repo itself: each subfolder with a
+// .git (a folder, or a file in a worktree or submodule).
+async function reposInside($: EngineInterface, dir: string): Promise<string[]> {
+  try {
+    const found: string[] = []
+    for (const x of await $.fs.list(dir)) {
+      if (x.name.startsWith('.') || x.name === 'node_modules' || !(x.kind === 'dir' || x.isLink)) continue
+      const sub = `${dir}/${x.name}`
+      if (await $.fs.exists(`${sub}/.git`)) found.push(sub)
+    }
+    return found.sort((a, b) => a.localeCompare(b))
+  } catch {
+    return []
+  }
+}
+
 async function listRepos($: EngineInterface): Promise<RepoRow[]> {
   const rows: RepoRow[] = []
   const has = (p: string) => rows.some(r => samePath(r.path, p))
-  const session = await topOf($, slash(await $.session.cwd()))
+  const cwd = slash(await $.session.cwd())
+  const session = await topOf($, cwd)
   if (session) {
     rows.push({ path: session, kind: 'session', isMissing: false })
     for (const w of parseWorktrees(await gitOut($, session, ['worktree', 'list', '--porcelain']))) {
       if (!has(w)) rows.push({ path: w, kind: 'worktree', isMissing: false })
+    }
+  } else {
+    for (const sub of await reposInside($, cwd)) {
+      const top = await topOf($, sub)
+      if (top && !has(top)) rows.push({ path: top, kind: 'inside', isMissing: false })
     }
   }
   for (const a of await addedRepos($)) {
@@ -184,6 +208,27 @@ async function currentRepo($: EngineInterface) {
 
 const sig = (v: unknown) => JSON.stringify(v)
 
+// One repo's card: its branch, changes and newest commit, from two quick reads.
+export async function summarize($: EngineInterface, path: string): Promise<RepoSummary> {
+  const [status, last] = await Promise.all([
+    gitOut($, path, ['status', '--porcelain=v2', '--branch', '-z']),
+    gitOut($, path, ['log', '-1', '--format=%aI']),
+  ])
+  if (!status) return { path, branch: '', upstream: '', ahead: 0, behind: 0, changed: 0, staged: 0, last: '', error: 'Could not read this repo.' }
+  const st = parseStatus(status)
+  return {
+    path,
+    branch: st.branch,
+    upstream: st.upstream,
+    ahead: st.ahead,
+    behind: st.behind,
+    changed: new Set(st.files.map(f => f.path)).size,
+    staged: new Set(st.files.filter(f => f.where === 'staged').map(f => f.path)).size,
+    last: last.trim(),
+    error: '',
+  }
+}
+
 export async function rescan($: EngineInterface) {
   if (isScanning) {
     isAgain = true
@@ -195,6 +240,14 @@ export async function rescan($: EngineInterface) {
       isAgain = false
       const list = await listRepos($)
       if (sig(list) !== sig(await read($, repos))) await update($, repos, () => list)
+      const multi = !list.some(r => r.kind === 'session') && list.length > 0
+      if (multi !== (await read($, isMulti))) await update($, isMulti, () => multi)
+      if (multi && !(await read($, repo))) {
+        // The overview: every listed repo, read side by side.
+        const cards = await Promise.all(list.filter(r => !r.isMissing).map(r => summarize($, r.path)))
+        if (sig(cards) !== sig(await read($, overview))) await update($, overview, () => cards)
+        continue
+      }
       const next = await scanRepo($, await currentRepo($), await read($, limit))
       if (sig(next) !== sig(await read($, snap))) await update($, snap, () => next)
     } while (isAgain)
@@ -215,13 +268,14 @@ async function isPaneOpen($: EngineInterface) {
 
 // ---------- actions ----------
 
-async function run($: EngineInterface, id: string, args: string[], done: string, timeoutMs = 30_000) {
-  const s = await read($, snap)
-  if (!s?.root || (await read($, busy))) return
+// Runs git in the open repo, or in `root` when given (the overview's Pull and Push).
+async function run($: EngineInterface, id: string, args: string[], done: string, timeoutMs = 30_000, root = '') {
+  const where = root || (await read($, snap))?.root || ''
+  if (!where || (await read($, busy))) return
   await update($, busy, () => id)
   await update($, note, () => '')
   try {
-    const out = await git($, s.root, args, timeoutMs)
+    const out = await git($, where, args, timeoutMs)
     if (out.exitCode !== 0) throw new Error(lastLine(out.stderr) || lastLine(out.stdout) || `exit ${out.exitCode}`)
     if (done) await update($, note, () => done)
   } catch (err) {
@@ -272,7 +326,10 @@ async function switchTo($: EngineInterface, branch: string) {
 
 async function chooseRepo($: EngineInterface, path: string) {
   const list = await read($, repos)
-  await update($, repo, () => (list[0]?.path && samePath(list[0].path, path) ? '' : path))
+  const session = list.find(r => r.kind === 'session')
+  // '' is the session folder's repo, or the overview when that folder holds several.
+  await update($, repo, () => (path && session && samePath(session.path, path) ? '' : path))
+  await update($, snap, () => null)
   await update($, showRepos, () => false)
   await update($, confirm, () => '')
   await update($, open, () => '')
@@ -390,7 +447,11 @@ export const register: Register = on => {
     const withRepos = await read($, showRepos)
     const withBranches = await read($, showBranches)
     const now = await $.clock.now()
-    if (!s) void rescan($)
+    const multi = await read($, isMulti)
+    const chosen = await read($, repo)
+    const cards = await read($, overview)
+    const isOverview = multi && !chosen
+    if (isOverview ? !cards.length : !s) void rescan($)
 
     const btn = (key: string, label: string, onPress: () => unknown, dim?: boolean) =>
       Svg ? (
@@ -423,12 +484,139 @@ export const register: Register = on => {
 
     const header = (
       <Box flexDirection="row" justifyContent="space-between" gap={1}>
-        <Text bold color={ACCENT}>
-          {TITLE}
-        </Text>
+        {multi && chosen ? (
+          btn('all-repos', '← All repos', () => chooseRepo($, ''))
+        ) : (
+          <Text bold color={ACCENT}>
+            {TITLE}
+          </Text>
+        )}
         {running ? <Text color={WARN}>{clip(`${running.split(':')[0]}…`, 14)}</Text> : btn('refresh', '↻ Refresh', () => rescan($), true)}
       </Box>
     )
+
+    // ----- the overview: a folder holding several repos -----
+
+    if (isOverview) {
+      const editsIn = (path: string) => chatEdits.filter(x => isInside(x, path)).length
+      const needsLook = (c: RepoSummary) => Boolean(c.upstream && (c.ahead || c.behind))
+      const sorted = [...cards].sort(
+        (a, b) =>
+          Number(needsLook(b)) - Number(needsLook(a)) ||
+          Number(editsIn(b.path) > 0) - Number(editsIn(a.path) > 0) ||
+          base(a.path).localeCompare(base(b.path)),
+      )
+      const looks = sorted.filter(needsLook)
+      const totalChanged = cards.reduce((n, c) => n + c.changed, 0)
+      const missing = repoList.filter(r => r.isMissing)
+      const folder = slash(await $.session.cwd())
+      const inside = repoList.filter(r => r.kind === 'inside').length
+
+      const lookRow = (c: RepoSummary) => {
+        const what = [c.behind ? `↓${c.behind} on ${c.upstream}` : '', c.ahead ? `↑${c.ahead} not pushed` : ''].filter(Boolean).join(' · ')
+        return (
+          <Box key={`look-${c.path}`} flexDirection="row" gap={1} marginTop={1} paddingX={1} alignItems="center">
+            <Box flexGrow={1}>
+              <Text color={WARN} wrap="truncate-end">
+                {clip(`${base(c.path)} · ${what}`, cols - 12)}
+              </Text>
+            </Box>
+            {running === `pull:${c.path}` || running === `push:${c.path}` ? (
+              <Text color={WARN}>…</Text>
+            ) : c.behind ? (
+              btn(`look-pull-${c.path}`, 'Pull', () => run($, `pull:${c.path}`, ['pull', '--ff-only'], `Pulled ${base(c.path)}.`, 120_000, c.path))
+            ) : (
+              btn(`look-push-${c.path}`, 'Push', () => run($, `push:${c.path}`, ['push'], `Pushed ${base(c.path)}.`, 120_000, c.path))
+            )}
+          </Box>
+        )
+      }
+
+      const card = (c: RepoSummary) => {
+        const n = editsIn(c.path)
+        const ab = [c.ahead ? `↑${c.ahead}` : '', c.behind ? `↓${c.behind}` : ''].filter(Boolean).join(' ')
+        const room = Math.max(10, cols - 4 - 9 - (n ? 8 : 0) - (ab ? ab.length + 1 : 0))
+        const where = c.branch ? `⎇ ${c.branch}${c.upstream ? ` → ${c.upstream}` : ' · no upstream'}` : '⎇ detached HEAD'
+        const state = c.error
+          ? c.error
+          : [c.changed ? `${c.changed} changed` : 'clean', c.staged ? `${c.staged} staged` : '', c.last ? `last commit ${ago(c.last, now)}` : 'no commits'].filter(Boolean).join(' · ')
+        return (
+          <Box key={`card-${c.path}`} flexDirection="column" marginTop={1} borderStyle="round" borderColor={needsLook(c) ? WARN : undefined} borderDimColor={needsLook(c) ? undefined : true} paddingX={1}>
+            <Box flexDirection="row" gap={1} alignItems="center">
+              <Box flexGrow={1}>
+                <Text bold wrap="truncate-end">
+                  {clip(base(c.path), room)}
+                </Text>
+              </Box>
+              {n ? <Text color="#7f77dd">{`chat ${n}`}</Text> : null}
+              {ab ? <Text color={WARN}>{ab}</Text> : null}
+              {btn(`open-${c.path}`, 'Open', () => chooseRepo($, c.path))}
+            </Box>
+            <Text dimColor wrap="truncate-end">
+              {clip(where, cols - 4)}
+            </Text>
+            {c.changed && !c.error ? (
+              <Text color={WARN} wrap="truncate-end">
+                {clip(state, cols - 4)}
+              </Text>
+            ) : (
+              <Text dimColor={!c.error || undefined} color={c.error ? DANGER : undefined} wrap="truncate-end">
+                {clip(state, cols - 4)}
+              </Text>
+            )}
+          </Box>
+        )
+      }
+
+      return (
+        <Box flexDirection="column" width={cols}>
+          {header}
+          <Box flexDirection="column" marginTop={1} borderStyle="round" borderDimColor paddingX={1}>
+            <Text bold wrap="truncate-end">
+              {clip(base(folder) || folder, cols - 4)}
+            </Text>
+            <Text dimColor wrap="truncate-end">
+              {clip(`session folder · ${inside ? plural(inside, 'repo') : 'no repos'} inside`, cols - 4)}
+            </Text>
+          </Box>
+          <Box flexDirection="row" gap={1} marginTop={1}>
+            {tile('t-repos', 'Repos', String(cards.length))}
+            {tile('t-changed', 'Changed', String(totalChanged), totalChanged ? WARN : undefined)}
+            {tile('t-look', 'Need a look', String(looks.length), looks.length ? WARN : undefined)}
+          </Box>
+          {looks.length ? (
+            <Box flexDirection="column">
+              {banner('h-attention', ATTENTION_BANNER, 'Needs a look')}
+              {looks.map(lookRow)}
+            </Box>
+          ) : null}
+          {banner('h-repos', SECTION_BANNER, 'Repos', <Text color={ON_BANNER}>{String(cards.length)}</Text>)}
+          {cards.length ? sorted.map(card) : <Text dimColor>Reading the repos…</Text>}
+          {missing.map(r => (
+            <Box key={`gone-${r.path}`} flexDirection="row" gap={1} marginTop={1} paddingX={1} alignItems="center">
+              <Box flexGrow={1}>
+                <Text dimColor wrap="truncate-end">
+                  {clipStart(`${r.path} · not found`, cols - 12)}
+                </Text>
+              </Box>
+              {btn(`rm-${r.path}`, 'Remove', () => removeRepo($, r.path))}
+            </Box>
+          ))}
+          <Box marginTop={1}>
+            <Text dimColor wrap="wrap">
+              Open a repo for its full view: fetch, stage, history and the rest live there.
+            </Text>
+          </Box>
+          {msg ? (
+            <Box marginTop={1}>
+              <Text color={msg.startsWith('!') ? DANGER : OK} wrap="wrap">
+                {msg.replace(/^!/, '')}
+              </Text>
+            </Box>
+          ) : null}
+        </Box>
+      )
+    }
 
     if (!s) {
       return (
@@ -441,7 +629,8 @@ export const register: Register = on => {
 
     // ----- the repo and the branch -----
 
-    const kindLabel = (r: RepoRow) => (r.kind === 'session' ? 'session folder' : r.kind === 'worktree' ? 'worktree' : 'added')
+    const kindLabel = (r: RepoRow) =>
+      r.kind === 'session' ? 'session folder' : r.kind === 'worktree' ? 'worktree' : r.kind === 'inside' ? 'in the session folder' : 'added'
     const current = repoList.find(r => samePath(r.path, s.root)) ?? repoList[0]
     const repoCard = (
       <Box key="repo" flexDirection="column" marginTop={1} borderStyle="round" borderDimColor paddingX={1}>

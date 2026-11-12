@@ -59,10 +59,27 @@ export type Snapshot = {
 export type RepoRow = {
   // The repo's top folder, forward slashes.
   path: string
-  // session: the session folder's. worktree: another worktree of it. added: by /git add.
-  kind: 'session' | 'worktree' | 'added'
+  // session: the session folder's. worktree: another worktree of it. inside: a repo in a
+  // subfolder of a session folder that is no repo itself. added: by /git add.
+  kind: 'session' | 'worktree' | 'inside' | 'added'
   // An added repo that is gone or no longer a repo.
   isMissing: boolean
+}
+
+// One repo's card in the overview of a folder holding several repos.
+export type RepoSummary = {
+  path: string
+  branch: string
+  upstream: string
+  ahead: number
+  behind: number
+  // Files with any change, and files with staged changes.
+  changed: number
+  staged: number
+  // The newest commit's author date, ISO 8601; '' when none.
+  last: string
+  // What went wrong reading it; '' when nothing.
+  error: string
 }
 
 declare module 'claude-code' {
@@ -73,6 +90,11 @@ declare module 'claude-code' {
       repo: string
       // The repos the switcher lists: the session folder's, its worktrees, then the added ones.
       repos: Shaped<RepoRow[]>
+      // True when the session folder is no repo but holds repos (or repos were added):
+      // the pane then opens on the overview.
+      isMulti: boolean
+      // The overview's cards, one per listed repo.
+      overview: Shaped<RepoSummary[]>
       // Files Claude's Edit, Write and NotebookEdit calls touched in this chat, absolute, forward slashes.
       edits: Shaped<string[]>
       // What is running ('pull', 'stage:<path>'…); '' for nothing.
