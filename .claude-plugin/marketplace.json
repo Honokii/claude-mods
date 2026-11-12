@@ -24,6 +24,11 @@
       "name": "mod-manager",
       "source": "./plugins/mod-manager",
       "description": "/mods pane: every mod you have, with on/off switches, command buttons and updates."
+    },
+    {
+      "name": "git-pane",
+      "source": "./plugins/git-pane",
+      "description": "/git pane: history as a branch graph, this chat's edits, staged and unstaged files, the branch against main, with stage, discard, switch, fetch, pull and push."
     }
   ]
 }

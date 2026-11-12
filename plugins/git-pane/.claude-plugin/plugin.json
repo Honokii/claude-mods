@@ -1,0 +1,7 @@
+{
+  "name": "git-pane",
+  "version": "0.1.0",
+  "description": "A pane (/git) with the repo's history as a branch graph and its changes: this chat's edits, staged and unstaged files, the branch against main, with stage, discard, switch, fetch, pull and push.",
+  "author": { "name": "jerick" },
+  "types": "./types/index.d.ts"
+}
