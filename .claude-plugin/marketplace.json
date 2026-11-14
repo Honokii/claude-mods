@@ -29,6 +29,11 @@
       "name": "git-pane",
       "source": "./plugins/git-pane",
       "description": "/git pane: history as a branch graph, this chat's edits, staged and unstaged files, the branch against main, with stage, discard, switch, fetch, pull and push."
+    },
+    {
+      "name": "ribbon",
+      "source": "./plugins/ribbon",
+      "description": "Band above the prompt: usage left, prompt cache warm or cold with the next message's cost, and a handoff written just before the cache goes cold. Fork of robonuggets/ribbon."
     }
   ]
 }

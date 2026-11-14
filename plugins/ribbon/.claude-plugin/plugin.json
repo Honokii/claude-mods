@@ -1,0 +1,11 @@
+{
+  "name": "ribbon",
+  "version": "1.1.0",
+  "description": "A slim band above the prompt: usage left in the 5-hour and 7-day windows, whether the prompt cache is warm or cold with what the next message costs, and a handoff written just before the cache goes cold. Fork of robonuggets/ribbon.",
+  "author": { "name": "Jay E", "url": "https://robonuggets.com" },
+  "homepage": "https://github.com/robonuggets/ribbon",
+  "repository": "https://github.com/robonuggets/ribbon",
+  "license": "MIT",
+  "keywords": ["usage", "rate-limit", "prompt-cache", "cost", "status", "handoff", "mod", "claude-code"],
+  "types": "./types/index.d.ts"
+}

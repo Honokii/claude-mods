@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" aria-label="Robo Group brand mark">
+  <path d="M58 24 L62 28 L66 46 L62 42 Z" fill="#ff6b1a" opacity="0.55" stroke="#ff6b1a" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M62 42 L66 46 L52 64 L48 60 Z" fill="#ff6b1a" opacity="0.55" stroke="#ff6b1a" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M48 60 L52 64 L28 60 L24 56 Z" fill="#ff6b1a" opacity="0.55" stroke="#ff6b1a" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M38 18 L58 24 L62 42 L48 60 L24 56 L18 34 Z" fill="#ff6b1a" stroke="#ff6b1a" stroke-width="2.5" stroke-linejoin="round"/>
+</svg>
