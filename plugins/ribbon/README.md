@@ -31,44 +31,33 @@ This is a fork of [robonuggets/ribbon](https://github.com/robonuggets/ribbon) 1.
   - The handoff is itself a turn, so the cache stays warm for another hour after it.
   - The thresholds are `HANDOFF_LEAD_MS` and `HANDOFF_MIN_TOKENS` in `hooks/register.tsx`.
 
-Install the fork from claude-mods in place of the original (the two share the name `ribbon`):
+## Install
+
+The fork installs from the claude-mods marketplace. The original and the fork are both named `ribbon`, so only one can be installed; remove the original first if you have it:
 
 ```
 claude plugin uninstall ribbon@robonuggets
+```
+
+Add the marketplace if you haven't yet, then install the fork for your user:
+
+```
+claude plugin marketplace add D:\Projects\claude-mods
 claude plugin install ribbon@claude-mods
 ```
 
-## Install
+Start a new session to see the band. The handoff also needs the `handoff` skill in `~/.claude/skills/handoff/`; without it, the session gets the prompt but has no skill to follow.
 
-The easy way: send this link to your agent and say "install this".
+### Updating
 
-```
-https://github.com/robonuggets/ribbon
-```
-
-Your agent runs one command. The band shows up in your next session.
-
-### For agents
-
-If you are an agent and your user asked you to install this, run this in a shell:
+Installed mods run from a copy in `~\.claude\plugins\cache\claude-mods\`. After a change here, bump `version` in `.claude-plugin/plugin.json`, then:
 
 ```
-claude plugin install ribbon --marketplace robonuggets/ribbon
+claude plugin marketplace update claude-mods
+claude plugin update ribbon@claude-mods
 ```
 
-It installs for the user (all their projects) and adds the marketplace on its own. Then tell your user: "Ribbon is installed. Start a new session to see the band above your prompt." Do not edit their settings file by hand.
-
-### By hand
-
-In a Claude Code terminal session, type:
-
-```
-/plugin install ribbon --marketplace robonuggets/ribbon
-```
-
-1. Type `y` when it asks `Add marketplace?`.
-2. Pick the **user** scope with Enter.
-3. Start a new session.
+The fork doesn't follow upstream. To take a later robonuggets/ribbon release, merge its changes into this folder by hand.
 
 ## What you see
 
@@ -99,7 +88,7 @@ The card shows how long you've been idle, how many tokens are in the cache, and 
 
 ## Good to know
 
-- **It costs nothing to run.** It reads the app's own numbers and draws them. It never calls a model.
+- **The band costs nothing to run.** It reads the app's own numbers and draws them. The one exception is the handoff, which is a normal turn at the warm price.
 - **Prices are estimates.** They come from a price table in `hooks/cache-art.ts` (`MODELS`), not from your bill. If prices change, edit that table.
 - **Subagents don't count.** Only your main chat resets the cache clock.
 
@@ -108,36 +97,37 @@ The card shows how long you've been idle, how many tokens are in the cache, and 
 ```
 ribbon/
 ├── .claude-plugin/
-│   ├── plugin.json         the mod's name and version
-│   └── marketplace.json    makes this repo installable
+│   └── plugin.json         the mod's name and version
 ├── hooks/
 │   ├── hooks.json          points to the module
 │   ├── register.tsx        the band: usage, cache tracking, layout
 │   ├── cache-art.ts        the cache card and robot drawings, the price table
 │   └── font.ts             Outfit, embedded so the drawings render anywhere
 ├── types/index.d.ts        the shape of what the band remembers
-├── tests/                  7 tests: layouts, warm and cold, terminal, cleared sessions
+├── tests/                  11 tests: layouts, cache, handoff
+├── LICENSE
 └── assets/                 banner, screenshots, hex icon
 ```
 
 ## Remove it
 
 ```
-claude plugin uninstall ribbon
+claude plugin uninstall ribbon@claude-mods
 ```
 
 ## Develop it
 
-Load the folder without installing it:
+From the claude-mods repo root, load the folder without installing it:
 
 ```
-claude --plugin-dir ./ribbon
+claude --plugin-dir plugins/ribbon
 ```
 
-Run the tests:
+Check it and run the tests:
 
 ```
-claude plugin test ./ribbon
+claude plugin validate plugins/ribbon
+claude plugin test plugins/ribbon
 ```
 
 ## Up close
